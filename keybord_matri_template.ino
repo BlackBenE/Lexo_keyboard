@@ -18,6 +18,10 @@ uint8_t colPins[COLS] = {18, 19};
 
 Keypad keypad = Keypad(makeKeymap(keyMap), rowPins, colPins, ROWS, COLS );
 
+// --- Configuration LED indicateur ---
+#define LED_PIN 2  // LED intégrée sur la plupart des ESP32
+#define LED_BLINK_INTERVAL 500  // Intervalle de clignotement en ms
+
 // --- Configuration BLE ---
 #define SERVICE_UUID        "fabb9cc5-6e51-410e-815f-ce3407eb71f5" // UUID de votre service personnalisé
 #define CHARACTERISTIC_UUID "036881af-a2d0-4bef-8d4a-de290627c11f" // UUID de la caractéristique pour les données des touches
@@ -28,22 +32,52 @@ BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;           
 bool oldDeviceConnected = false;        
 
+// Variables pour la gestion de la LED
+unsigned long lastLedToggle = 0;
+bool ledState = false;
+
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       deviceConnected = true;
       Serial.println("Client BLE connecté !");
+      // Allumer la LED en continu quand connecté
+      digitalWrite(LED_PIN, HIGH);
+      ledState = true;
     };
 
     void onDisconnect(BLEServer* pServer) {
       deviceConnected = false;
       Serial.println("Client BLE déconnecté !");
+      // Éteindre la LED quand déconnecté
+      digitalWrite(LED_PIN, LOW);
+      ledState = false;
       BLEDevice::startAdvertising();
     }
 };
 
+// Fonction pour gérer l'état de la LED
+void updateLedStatus() {
+  if (deviceConnected) {
+    // LED allumée en continu quand connecté
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    // LED clignote quand en attente de connexion
+    unsigned long currentTime = millis();
+    if (currentTime - lastLedToggle >= LED_BLINK_INTERVAL) {
+      ledState = !ledState;
+      digitalWrite(LED_PIN, ledState);
+      lastLedToggle = currentTime;
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200); 
   Serial.println("Démarrage du serveur BLE pour le clavier...");
+
+  // Configuration de la LED
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW); // Éteindre la LED au démarrage
 
   BLEDevice::init("MyLeXoKeyboard");
 
@@ -75,9 +109,14 @@ void setup() {
   BLEDevice::startAdvertising();
 
   Serial.println("Advertising BLE démarré. En attente d'un client pour se connecter...");
+  Serial.println("LED clignote = En attente de connexion");
+  Serial.println("LED allumée = Client connecté");
 }
 
 void loop() {
+  // Mise à jour de l'état de la LED
+  updateLedStatus();
+  
   char key = keypad.getKey(); 
 
   if (key) { 
